@@ -141,9 +141,12 @@ function exportLakesheetCsv(content, filePath) {
   function cellValue(row, col) {
     const cell = data[row]?.[col];
     if (!cell) return '';
-    if (cell.v?.m != null) return cell.v.m;
-    if (cell.m != null) return cell.m;
-    if (typeof cell.v === 'string' || typeof cell.v === 'number') return String(cell.v);
+    const v = cell.v;
+    if (v == null) return '';
+    if (typeof v === 'string' || typeof v === 'number') return String(v);
+    // Select/dropdown: { class: "select", value: ["已迁移"], ... }
+    if (v.class === 'select' && Array.isArray(v.value)) return v.value.join(', ');
+    if (v.m != null) return v.m;
     return '';
   }
 
@@ -164,8 +167,10 @@ function exportLakesheetCsv(content, filePath) {
 }
 
 function csvEscape(val) {
-  if (/[,"\n\r]/.test(val)) return '"' + val.replace(/"/g, '""') + '"';
-  return val;
+  // Replace newlines with space for CSV compatibility
+  const v = val.replace(/\n/g, ' ');
+  if (/[,"\r]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+  return v;
 }
 
 async function main() {
