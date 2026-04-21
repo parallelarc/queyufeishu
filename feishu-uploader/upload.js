@@ -17,14 +17,8 @@ const CONFIG = {
   wikiParentNodeToken: process.env.FEISHU_WIKI_PARENT_NODE_TOKEN || '',
   markdownDir: process.env.FEISHU_MARKDOWN_DIR || '../docs',
   userTokenFile: './user_token.json',
-  uploadImages: process.env.FEISHU_UPLOAD_IMAGES !== 'false',
-  downloadImages: process.env.FEISHU_DOWNLOAD_IMAGES !== 'false',
-  imageAssetDir: process.env.FEISHU_IMAGE_ASSET_DIR || '_images',
-  useConvertApi: process.env.FEISHU_USE_CONVERT_API !== 'false',
-  reuploadExisting: process.env.FEISHU_REUPLOAD_EXISTING === 'true' ||
-    process.argv.includes('--reupload-existing') ||
-    process.argv.includes('--overwrite'),
-  testConvertOnly: process.argv.includes('--test-convert'),
+  imageAssetDir: '_images',
+  reuploadExisting: process.argv.includes('--reupload-existing') || process.argv.includes('--overwrite'),
 };
 
 // 颜色输出
@@ -349,14 +343,8 @@ class FeishuApi {
   }
 
   async writeMarkdownContent(documentId, markdown, options = {}) {
-    if (CONFIG.useConvertApi) {
-      const converted = await this.convertMarkdownToBlocks(markdown, options.baseDir || process.cwd());
-      await this.createConvertedBlocks(documentId, converted, options);
-      return;
-    }
-
-    const blocks = markdownToBlocks(markdown, options);
-    await this.batchCreateBlocks(documentId, blocks);
+    const converted = await this.convertMarkdownToBlocks(markdown, options.baseDir || process.cwd());
+    await this.createConvertedBlocks(documentId, converted, options);
   }
 
   async replaceMarkdownContent(documentId, markdown, options = {}) {
@@ -415,37 +403,6 @@ class FeishuApi {
     }
   }
 
-  /**
-   * 批量创建块
-   */
-  async batchCreateBlocks(documentId, blocks) {
-    const rootBlock = await this.getRootBlock(documentId);
-    const rootBlockId = rootBlock.block_id;
-
-    const batchSize = 20;
-    for (let i = 0; i < blocks.length; i += batchSize) {
-      const batch = blocks.slice(i, i + batchSize);
-      const blockEntries = batch.map(toBlockEntry);
-      const res = await this.client.docx.documentBlockChildren.create({
-        path: { document_id: documentId, block_id: rootBlockId },
-        data: { children: blockEntries.map((entry) => entry.block), index: -1 },
-      }, this.getOptions());
-
-      const createdBlocks = res.data?.children || [];
-      for (let j = 0; j < blockEntries.length; j++) {
-        const entry = blockEntries[j];
-        if (!entry.image) continue;
-
-        const imageBlockId = createdBlocks[j]?.block_id;
-        if (!imageBlockId) {
-          throw new Error('图片块创建成功但未返回 block_id: ' + entry.image.url);
-        }
-
-        await this.uploadAndBindImage(documentId, imageBlockId, entry.image);
-      }
-    }
-  }
-
   async uploadAndBindImage(documentId, imageBlockId, image) {
     const payload = await loadImagePayload(image.url, image.baseDir);
     if (payload.size > 20 * 1024 * 1024) {
@@ -482,11 +439,6 @@ class FeishuApi {
       },
     }, this.getOptions());
   }
-}
-
-function toBlockEntry(item) {
-  if (item && item.block) return item;
-  return { block: item };
 }
 
 function normalizeMarkdownForConvert(markdown) {
@@ -826,130 +778,6 @@ function markdownImageRegex() {
   return /!\[([^\]]*)\]\(([^)]+)\)/g;
 }
 
-/**
- * Markdown 转飞书块格式
- */
-function markdownToBlocks(markdown, options = {}) {
-  const lines = markdown.split('\n');
-  const blocks = [];
-  let inCodeBlock = false;
-  let codeContent = [];
-  let codeLanguage = '';
-  const baseDir = options.baseDir || process.cwd();
-  const uploadImages = options.uploadImages !== false;
-
-  const pushText = (text) => {
-    const normalized = normalizeMarkdownText(text);
-    const content = normalized || ' ';
-    const maxLength = 1500;
-    for (let i = 0; i < content.length; i += maxLength) {
-      const chunk = content.slice(i, i + maxLength) || ' ';
-      blocks.push({
-        block_type: 2,
-        text: { elements: textRunElements(chunk), style: {} }
-      });
-    }
-  };
-
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-
-    if (trimmedLine.startsWith('```')) {
-      if (!inCodeBlock) {
-        inCodeBlock = true;
-        codeLanguage = trimmedLine.slice(3).trim();
-        codeContent = [];
-      } else {
-        inCodeBlock = false;
-        const languageLabel = codeLanguage ? codeLanguage : '';
-        pushText('```' + languageLabel + '\n' + codeContent.join('\n') + '\n```');
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeContent.push(line);
-      continue;
-    }
-
-    if (uploadImages && pushImageAwareBlocks(trimmedLine, baseDir, blocks, pushText)) {
-      continue;
-    }
-
-    // 表格 - 简化处理
-    if (trimmedLine.startsWith('|')) {
-      if (trimmedLine.match(/^\|[\s-|]+\|$/)) continue;
-      pushText(trimmedLine.replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim()).join(' | '));
-      continue;
-    }
-
-    // 标题 - 使用 text 块代替 heading
-    if (trimmedLine.startsWith('# ')) {
-      pushText('【一级标题】' + trimmedLine.slice(2));
-    } else if (trimmedLine.startsWith('## ')) {
-      pushText('【二级标题】' + trimmedLine.slice(3));
-    } else if (trimmedLine.startsWith('### ')) {
-      pushText('【三级标题】' + trimmedLine.slice(4));
-    } else if (trimmedLine.match(/^[-*]{3,}$/)) {
-      pushText('---');
-    } else if (!trimmedLine) {
-      pushText(' ');
-    } else {
-      pushText(trimmedLine);
-    }
-  }
-
-  if (inCodeBlock) {
-    const languageLabel = codeLanguage ? codeLanguage : '';
-    pushText('```' + languageLabel + '\n' + codeContent.join('\n'));
-  }
-
-  return blocks;
-}
-
-function normalizeMarkdownText(text) {
-  return String(text || '')
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, url) => alt ? `${alt} ${parseMarkdownImageTarget(url)}` : parseMarkdownImageTarget(url))
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 $2')
-    .replace(/<\/?font[^>]*>/g, '')
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\*\*/g, '')
-    .replace(/`/g, '');
-}
-
-function textRunElements(text) {
-  return [{ text_run: { content: text || ' ', text_element_style: {} } }];
-}
-
-function pushImageAwareBlocks(line, baseDir, blocks, pushText) {
-  const imageRegex = markdownImageRegex();
-  let lastIndex = 0;
-  let matched = false;
-  let match;
-
-  while ((match = imageRegex.exec(line)) !== null) {
-    matched = true;
-    const before = line.slice(lastIndex, match.index).trim();
-    if (before) pushText(before);
-
-    const alt = match[1].trim();
-    const url = parseMarkdownImageTarget(match[2]);
-    const imageBlock = alt ? { caption: { content: alt } } : {};
-    blocks.push({
-      block: { block_type: 27, image: imageBlock },
-      image: { url, alt, baseDir },
-    });
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (!matched) return false;
-
-  const after = line.slice(lastIndex).trim();
-  if (after) pushText(after);
-  return true;
-}
-
 async function loadImagePayload(imageUrl, baseDir) {
   if (isRemoteUrl(imageUrl)) {
     return loadRemoteImagePayload(imageUrl);
@@ -1013,24 +841,6 @@ function sanitizeFileName(fileName) {
   return String(fileName || '').replace(/[\\/:*?"<>|]/g, '_');
 }
 
-function findFirstImageFile(dirPath) {
-  if (!fs.existsSync(dirPath)) return null;
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name);
-    if (entry.isDirectory()) {
-      const nested = findFirstImageFile(fullPath);
-      if (nested) return nested;
-    } else if (entry.isFile() && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(entry.name)) {
-      return fullPath;
-    }
-  }
-
-  return null;
-}
-
 function extractAuthCode(input) {
   const value = String(input || '').trim();
   try {
@@ -1041,49 +851,30 @@ function extractAuthCode(input) {
   }
 }
 
-function mapLanguage(lang) {
-  const map = {
-    'js': 1, 'javascript': 1, 'ts': 2, 'typescript': 2, 'python': 3,
-    'java': 4, 'go': 5, 'sql': 6, 'shell': 7, 'bash': 7, 'json': 8,
-    'html': 9, 'css': 10, 'c': 11, 'cpp': 12, 'c++': 12, 'xml': 13,
-    'php': 14, 'ruby': 15, 'swift': 16, 'kotlin': 17, 'yaml': 19, 'yml': 19,
-  };
-  return map[lang.toLowerCase()] || 0;
-}
-
 /**
  * 主函数
  */
 async function main() {
   info('=== 飞书文档上传工具 (SDK 版本) ===\n');
 
-  const downloadImagesOnly = process.argv.includes('--download-images-only');
   const markdownPath = path.resolve(__dirname, CONFIG.markdownDir);
   if (!fs.existsSync(markdownPath)) {
     error('目录不存在: ' + markdownPath);
     return;
   }
 
-  if (CONFIG.downloadImages) {
-    info('本地化 Markdown 图片: ' + markdownPath);
-    const imageStats = await localizeMarkdownImages(markdownPath, CONFIG.imageAssetDir);
-    info('本地图片目录: ' + imageStats.assetRoot);
-    success(
-      '图片本地化完成：扫描 ' + imageStats.filesScanned +
-      ' 个 Markdown，发现 ' + imageStats.imagesFound +
-      ' 张图片，下载 ' + imageStats.imagesDownloaded +
-      ' 张，复用 ' + imageStats.imagesReused +
-      ' 张，缓存命中 ' + imageStats.imagesCached +
-      ' 次，已是本地路径 ' + imageStats.localImages +
-      ' 张，更新 ' + imageStats.filesUpdated + ' 个 Markdown'
-    );
-  } else if (downloadImagesOnly) {
-    warn('FEISHU_DOWNLOAD_IMAGES=false，未执行图片下载');
-  }
-
-  if (downloadImagesOnly) {
-    return;
-  }
+  info('本地化 Markdown 图片: ' + markdownPath);
+  const imageStats = await localizeMarkdownImages(markdownPath, CONFIG.imageAssetDir);
+  info('本地图片目录: ' + imageStats.assetRoot);
+  success(
+    '图片本地化完成：扫描 ' + imageStats.filesScanned +
+    ' 个 Markdown，发现 ' + imageStats.imagesFound +
+    ' 张图片，下载 ' + imageStats.imagesDownloaded +
+    ' 张，复用 ' + imageStats.imagesReused +
+    ' 张，缓存命中 ' + imageStats.imagesCached +
+    ' 次，已是本地路径 ' + imageStats.localImages +
+    ' 张，更新 ' + imageStats.filesUpdated + ' 个 Markdown'
+  );
 
   if (!CONFIG.appId || !CONFIG.appSecret) {
     error('请在 .env 文件中配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET');
@@ -1143,49 +934,6 @@ async function main() {
     return;
   }
 
-  if (CONFIG.testConvertOnly) {
-    const sampleLines = [
-      '# 一级标题',
-      '',
-      '这是一段包含 **加粗**、`行内代码` 和 [链接](https://example.com) 的文本。',
-      '',
-      '- 无序列表 A',
-      '- 无序列表 B',
-      '',
-      '| 字段 | 说明 |',
-      '| --- | --- |',
-      '| 风速 | 10m/s |',
-      '',
-      '```js',
-      'const value = 42;',
-      '```',
-    ];
-    const sampleImage = findFirstImageFile(path.join(markdownPath, CONFIG.imageAssetDir));
-    if (sampleImage) {
-      sampleLines.push('', '![图片样例](' + toMarkdownPath(path.relative(markdownPath, sampleImage)) + ')');
-    }
-    const sampleMarkdown = sampleLines.join('\n');
-    const converted = await api.convertMarkdownToBlocks(sampleMarkdown, markdownPath);
-    const typeCounts = {};
-    for (const block of converted.blocks) {
-      typeCounts[block.block_type] = (typeCounts[block.block_type] || 0) + 1;
-    }
-    success('Markdown 转换测试成功：' + converted.blocks.length + ' 个块，类型分布 ' + JSON.stringify(typeCounts));
-    if (process.argv.includes('--debug-convert')) {
-      info('一级块 ID: ' + JSON.stringify(converted.firstLevelBlockIds));
-      info('块关系摘要: ' + JSON.stringify(converted.blocks.map((block) => ({
-        id: block.block_id,
-        parent: block.parent_id,
-        children: block.children,
-        type: block.block_type,
-      })), null, 2));
-      if (process.argv.includes('--debug-convert-full')) {
-        info('完整块样例: ' + JSON.stringify(converted.blocks, null, 2));
-      }
-    }
-    return;
-  }
-
   // 获取目录结构
   info('扫描目录: ' + markdownPath);
   const structure = await getDirectoryStructure(markdownPath);
@@ -1198,12 +946,7 @@ async function main() {
     }
   }
   countFiles(structure);
-  info('共 ' + totalFiles + ' 个 Markdown 文件\n');
-  if (CONFIG.useConvertApi) {
-    info('Markdown 转换模式: 飞书官方 convert API');
-  } else {
-    warn('Markdown 转换模式: 本地简化转换，视觉效果可能与 VSCode 不一致');
-  }
+  info('共 ' + totalFiles + ' 个文件\n');
   if (CONFIG.reuploadExisting) {
     warn('已开启覆盖重传：复用已有文档时会先写入新内容，成功后删除旧内容');
   }
@@ -1266,7 +1009,6 @@ async function main() {
           }
           const markdownOptions = {
             baseDir: path.dirname(item.fullPath),
-            uploadImages: CONFIG.uploadImages,
           };
 
           const doc = await api.getOrCreateDoc(title, parentToken, CONFIG.wikiSpaceId);
