@@ -1,0 +1,24 @@
+{
+  "name": "feishu-uploader",
+  "version": "1.0.0",
+  "description": "语雀文档上传到飞书的工具",
+  "main": "upload.js",
+  "scripts": {
+    "upload": "node upload.js"
+  },
+  "keywords": [
+    "feishu",
+    "lark",
+    "yuque",
+    "migration"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@feishux/api": "^0.3.3",
+    "@larksuiteoapi/node-sdk": "^1.60.0",
+    "axios": "^1.15.1",
+    "dotenv": "^17.4.2"
+  }
+}

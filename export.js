@@ -6,8 +6,8 @@ const zlib = require('zlib');
 
 // ─── Configuration ───────────────────────────────────────────
 const CONFIG = {
-  host: 'https://tsingroc.yuque.com',
-  cookieFile: path.join(__dirname, 'tsingroc_yuque_com_cookies.json'),
+  host: process.env.YUQUE_HOST || 'https://xxx.yuque.com',
+  cookieFile: process.env.YUQUE_COOKIE_FILE || path.join(__dirname, 'cookies.json'),
   outputDir: path.join(__dirname, 'docs'),
   requestDelay: 500,
   latexcode: false,

@@ -4,10 +4,6 @@ node_modules/
 # Logs
 *.log
 
-# Sensitive - authentication cookies
-*_cookies.json
-cookies.json
-
 # Environment
 .env
 .env.local
@@ -22,10 +18,11 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
-*~
 
-# Output - exported Yuque documents
-docs/
+# Build
+dist/
+build/
 
-# Claude Code
-.claude/
+# Test
+coverage/
+user_token.json

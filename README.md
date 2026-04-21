@@ -27,7 +27,7 @@ yuque_exporter/
 
 **1. 获取 Cookie 文件**
 
-1. 浏览器登录语雀：`https://tsingroc.yuque.com`
+1. 浏览器登录语雀：`https://<你的团队>.yuque.com`
 2. 打开浏览器开发者工具 → Network 面板
 3. 刷新页面，找到任意请求，复制 `Cookie` 请求头的值
 4. 使用 [Cookie Exporter](https://chromewebstore.google.com/detail/cookie-exporter/fhnmmidekmgocpjdceeffppcodigillk) 扩展导出 Cookie 为 JSON 数组格式：
@@ -39,9 +39,12 @@ yuque_exporter/
    ]
    ```
 
-5. 将 JSON 保存为项目根目录下的 `tsingroc_yuque_com_cookies.json`
+5. 将 JSON 保存为项目根目录下的 `cookies.json`
 
+> 也可以通过环境变量 `YUQUE_COOKIE_FILE` 指定其他路径。
 > 此文件已在 `.gitignore` 中忽略，不会被提交到 Git。
+
+> 运行前需设置语雀域名：`export YUQUE_HOST=https://<你的团队>.yuque.com`
 
 **2. 运行导出**
 
