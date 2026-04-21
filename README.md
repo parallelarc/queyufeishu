@@ -126,19 +126,3 @@ node upload.js
 
 - `--reupload-existing` / `--overwrite`：重新上传已存在的文档
 - `--test-convert`：仅测试格式转换，不实际上传
-
----
-
-## 常见问题
-
-**Q: Cookie 文件从哪来？**
-浏览器安装 Cookie 导出扩展（如 EditThisCookie），登录语雀后导出为 JSON，保存到项目根目录。
-
-**Q: 导出失败提示 HTTP 403？**
-Cookie 已过期，重新获取即可。
-
-**Q: 导出中断了怎么办？**
-直接重新运行，已导出的文件会自动跳过。
-
-**Q: 飞书上传提示权限不足？**
-检查飞书应用是否开通了 Wiki 相关权限（`wiki:wiki:read`、`wiki:wiki:write`），并确认 user_token 未过期。
